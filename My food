@@ -1,1 +1,926 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Food - Order App</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .food-card { transition: all 0.3s ease; }
+        .food-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .toast { animation: slideIn 0.3s ease-out forwards; }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        .pulse-ring::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        @keyframes checkmark {
+            0% { stroke-dashoffset: 50; }
+            100% { stroke-dashoffset: 0; }
+        }
+        .checkmark-path {
+            stroke-dasharray: 50;
+            stroke-dashoffset: 50;
+            animation: checkmark 0.5s ease-out 0.3s forwards;
+        }
+
+        #qrcode-container img, #qrcode-container canvas { margin: 0 auto; }
+
+        .calorie-badge {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            color: #92400e;
+        }
+
+        /* ===== ADMIN TOGGLE SWITCH (works even without Tailwind) ===== */
+        .admin-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            border: 2px solid #e2e8f0;
+            background: #f1f5f9;
+            color: #475569;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.3s ease;
+        }
+        .admin-toggle:hover { background: #ffedd5; border-color: #fdba74; }
+        .admin-toggle:active { transform: scale(0.95); }
+        .admin-toggle.on {
+            background: #fff7ed;
+            border-color: #f97316;
+            color: #c2410c;
+        }
+        .switch-track {
+            width: 36px;
+            height: 20px;
+            border-radius: 999px;
+            background: #cbd5e1;
+            position: relative;
+            transition: background 0.3s ease;
+            flex-shrink: 0;
+        }
+        .switch-knob {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            transition: transform 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .admin-toggle.on .switch-track { background: #f97316; }
+        .admin-toggle.on .switch-knob { transform: translateX(16px); }
+
+        @keyframes attention {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.06); box-shadow: 0 0 0 10px rgba(249, 115, 22, 0.15); }
+        }
+        .attention { animation: attention 1.2s ease-in-out 3; }
+
+        @keyframes bannerSlide {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .banner-slide { animation: bannerSlide 0.4s ease-out forwards; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Navbar -->
+    <nav class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-20">
+        <div class="flex items-center gap-3">
+            <div class="bg-orange-500 text-white p-2 rounded-lg">
+                <i class="fa-solid fa-utensils text-xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-800">My <span class="text-orange-500">Food</span></h1>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <button onclick="openGuide()" class="cursor-pointer w-9 h-9 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 transition-all flex items-center justify-center" title="How to use Admin Mode">
+                <i class="fa-solid fa-circle-question"></i>
+            </button>
+
+            <!-- ADMIN TOGGLE: real button with switch, bound in JS for reliability -->
+            <button type="button" id="adminBtn" class="admin-toggle attention" title="Click to turn Admin Mode ON/OFF">
+                <i class="fa-solid fa-lock" id="adminIcon"></i>
+                <span id="adminLabel">Admin Mode: OFF</span>
+                <span class="switch-track"><span class="switch-knob"></span></span>
+            </button>
+            
+            <button onclick="toggleCart()" class="relative p-2 text-slate-600 hover:text-orange-500 transition-colors cursor-pointer">
+                <i class="fa-solid fa-cart-shopping text-2xl"></i>
+                <span id="cartBadge" class="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full transform scale-0 transition-transform duration-200">0</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Admin Banner -->
+    <div id="adminBanner" style="display:none;" class="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-6 py-3 shadow-md">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 banner-slide">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-user-shield text-xl"></i>
+                <div>
+                    <p class="font-semibold text-sm">Admin Mode is ON — you can now edit the menu!</p>
+                    <p class="text-xs text-orange-100">✏️ Click the pen icon on a food to edit it · 🗑️ Click trash to delete · ➕ Use "Add New Item" button</p>
+                </div>
+            </div>
+            <button onclick="dismissBanner()" class="text-white/80 hover:text-white px-2 cursor-pointer">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto p-6 relative">
+        <div class="max-w-7xl mx-auto mb-8 flex justify-between items-end">
+            <div>
+                <h2 class="text-3xl font-bold text-slate-800">Our Menu</h2>
+                <p class="text-slate-500 mt-1">Fresh ingredients, delivered fast. <span class="text-xs text-amber-600"><i class="fa-solid fa-fire-flame-curved"></i> Calorie info included</span></p>
+            </div>
+            <button id="addFoodBtn" onclick="openModal('add')" style="display:none;" class="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 rounded-lg font-medium shadow-lg shadow-orange-500/30 transition-all items-center gap-2 cursor-pointer">
+                <i class="fa-solid fa-plus"></i> Add New Item
+            </button>
+        </div>
+
+        <!-- Category Filter -->
+        <div id="categoryFilter" class="max-w-7xl mx-auto mb-6 flex flex-wrap gap-2"></div>
+
+        <div id="foodGrid" class="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20"></div>
+
+        <div id="emptyState" style="display:none;" class="max-w-7xl mx-auto text-center py-20">
+            <div class="bg-slate-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fa-solid fa-cookie-bite text-4xl text-slate-400"></i>
+            </div>
+            <h3 class="text-xl font-semibold text-slate-700">No items found</h3>
+            <p class="text-slate-500">Try adding some food items in Admin Mode.</p>
+        </div>
+    </main>
+
+    <!-- Cart Sidebar -->
+    <div id="cartSidebar" class="fixed inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl transform translate-x-full transition-transform duration-300 z-30 flex flex-col">
+        <div class="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+            <h2 class="text-xl font-bold text-slate-800">Your Order</h2>
+            <button onclick="toggleCart()" class="text-slate-400 hover:text-red-500 transition-colors cursor-pointer">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+        
+        <div id="cartItems" class="flex-1 overflow-y-auto p-5 space-y-4"></div>
+
+        <div class="p-5 border-t border-slate-100 bg-slate-50 space-y-3">
+            <div class="flex justify-between text-sm text-slate-600"><span>Subtotal</span><span id="cartSubtotal">$0.00</span></div>
+            <div class="flex justify-between text-sm text-slate-600"><span>Tax (8%)</span><span id="cartTax">$0.00</span></div>
+            <div class="flex justify-between text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                <span><i class="fa-solid fa-fire-flame-curved mr-1"></i>Total Calories</span>
+                <span id="cartCalories" class="font-semibold">0 kcal</span>
+            </div>
+            <div class="flex justify-between text-xl font-bold text-slate-800 pt-2 border-t border-slate-200">
+                <span>Total</span><span id="cartTotal">$0.00</span>
+            </div>
+
+            <div class="pt-2">
+                <label class="block text-xs font-medium text-slate-600 mb-1">
+                    <i class="fa-solid fa-mobile-screen mr-1"></i>Phone for SMS Notification
+                </label>
+                <input type="tel" id="phoneNumber" placeholder="+1 234 567 8900" class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm">
+            </div>
+
+            <button onclick="checkout()" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-semibold shadow-lg transition-all active:scale-95 cursor-pointer">
+                Checkout Now
+            </button>
+        </div>
+    </div>
+
+    <!-- Overlay -->
+    <div id="overlay" onclick="closeAllDrawers()" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-20 hidden opacity-0 transition-opacity duration-300 cursor-pointer"></div>
+
+    <!-- Admin Guide Modal -->
+    <div id="guideModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden transform scale-95 opacity-0 transition-all duration-300 max-h-[90vh] overflow-y-auto" id="guideModalContent">
+            <div class="bg-gradient-to-r from-orange-500 to-amber-500 p-6 text-white">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-2xl font-bold"><i class="fa-solid fa-user-shield mr-2"></i>Admin Mode Guide</h3>
+                        <p class="text-orange-100 text-sm mt-1">Learn how to manage your menu in 4 easy steps</p>
+                    </div>
+                    <button onclick="closeGuide()" class="text-white/80 hover:text-white cursor-pointer">
+                        <i class="fa-solid fa-xmark text-xl"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-6 space-y-5">
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold">1</div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-slate-800">Turn On Admin Mode</h4>
+                        <p class="text-sm text-slate-500 mt-1">Click the <strong>Admin Mode switch</strong> at the top right of the page. The switch will slide right and turn <strong class="text-orange-600">orange = ON</strong>.</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold">2</div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-slate-800">Add New Food</h4>
+                        <p class="text-sm text-slate-500 mt-1">Click the <span class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-medium"><i class="fa-solid fa-plus mr-1"></i>Add New Item</span> button. Fill in name, price, calories, category, image — then click <strong>Save Item</strong>.</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold">3</div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-slate-800">Edit a Food</h4>
+                        <p class="text-sm text-slate-500 mt-1">On any food card, click the <span class="bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium"><i class="fa-solid fa-pen mr-1"></i>blue pen icon</span> at the top-right of the image. Change details and click <strong>Save Item</strong>.</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold">4</div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-slate-800">Delete a Food</h4>
+                        <p class="text-sm text-slate-500 mt-1">Click the <span class="bg-red-50 text-red-600 px-2 py-0.5 rounded font-medium"><i class="fa-solid fa-trash mr-1"></i>red trash icon</span> on a food card and confirm.</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-xl p-4 flex items-start gap-3">
+                    <i class="fa-solid fa-lightbulb text-amber-500 text-lg mt-0.5"></i>
+                    <p class="text-sm text-slate-600"><strong>Tip:</strong> Click the Admin switch again to turn it OFF. All changes are saved automatically on this device.</p>
+                </div>
+
+                <button onclick="closeGuideAndStart()" class="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-semibold shadow-lg shadow-orange-500/30 transition-all active:scale-95 cursor-pointer">
+                    Got it, turn Admin ON!
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div id="itemModal" class="fixed inset-0 z-40 hidden flex items-center justify-center pointer-events-none">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 transform scale-95 opacity-0 transition-all duration-300 pointer-events-auto max-h-[90vh] overflow-y-auto" id="modalContent">
+            <div class="flex justify-between items-center mb-6">
+                <h3 id="modalTitle" class="text-2xl font-bold text-slate-800">Add New Item</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <form id="foodForm" onsubmit="handleFormSubmit(event)">
+                <input type="hidden" id="itemId">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Food Name</label>
+                        <input type="text" id="itemName" required class="w-full px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all" placeholder="e.g. Spicy Burger">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                        <textarea id="itemDesc" rows="2" required class="w-full px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all" placeholder="Short description..."></textarea>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Price ($)</label>
+                            <input type="number" id="itemPrice" step="0.01" min="0" required class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all" placeholder="0.00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Calories</label>
+                            <input type="number" id="itemCalories" min="0" required class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all" placeholder="kcal">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+                            <select id="itemCategory" class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all bg-white text-sm">
+                                <option value="Burger">Burger</option>
+                                <option value="Pizza">Pizza</option>
+                                <option value="Sushi">Sushi</option>
+                                <option value="Salad">Salad</option>
+                                <option value="Dessert">Dessert</option>
+                                <option value="Drink">Drink</option>
+                                <option value="Main Course">Main Course</option>
+                                <option value="Noodles">Noodles</option>
+                                <option value="Mexican">Mexican</option>
+                                <option value="Breakfast">Breakfast</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Image URL</label>
+                        <div class="flex gap-2">
+                            <input type="url" id="itemImage" class="flex-1 px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all" placeholder="https://...">
+                            <button type="button" onclick="generateRandomImage()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-medium transition-colors cursor-pointer" title="Random Food Image">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-1">Leave empty for a random image.</p>
+                    </div>
+                </div>
+
+                <div class="mt-8 flex gap-3">
+                    <button type="button" onclick="closeModal()" class="flex-1 px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
+                    <button type="submit" class="flex-1 px-4 py-2.5 rounded-lg bg-orange-500 text-white font-medium hover:bg-orange-600 shadow-lg shadow-orange-500/30 transition-all cursor-pointer">Save Item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Order Confirmation Modal -->
+    <div id="orderModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden transform scale-95 opacity-0 transition-all duration-300 max-h-[95vh] overflow-y-auto" id="orderModalContent">
+            <div class="bg-gradient-to-br from-green-500 to-emerald-600 p-6 text-white text-center relative">
+                <div class="relative w-20 h-20 mx-auto mb-3 bg-white rounded-full flex items-center justify-center">
+                    <svg class="w-12 h-12 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <path class="checkmark-path" d="M5 13l4 4L19 7"/>
+                    </svg>
+                </div>
+                <h3 class="text-2xl font-bold">Order Confirmed!</h3>
+                <p class="text-green-100 text-sm mt-1">Order #<span id="orderNumber">000000</span></p>
+            </div>
+
+            <div class="p-6 space-y-5">
+                <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+                    <div class="relative w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 pulse-ring">
+                        <i class="fa-solid fa-comment-sms text-white"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-semibold text-slate-800 text-sm">SMS Notification Sent</p>
+                        <p class="text-xs text-slate-600 mt-0.5">Confirmation sent to <span id="smsPhone" class="font-mono font-semibold text-blue-600">+1 234 567 8900</span></p>
+                        <p class="text-xs text-slate-500 mt-1 italic">"Your order has been received and is being prepared..."</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-xl p-5 text-center">
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Scan to track your order</p>
+                    <div id="qrcode-container" class="bg-white p-3 rounded-lg inline-block shadow-sm"></div>
+                    <p class="text-xs text-slate-500 mt-3">Show this QR code at pickup</p>
+                </div>
+
+                <div class="border-t border-slate-100 pt-4">
+                    <div class="flex justify-between text-sm mb-1"><span class="text-slate-600">Items</span><span id="summaryItems" class="font-medium">0</span></div>
+                    <div class="flex justify-between text-sm mb-1"><span class="text-slate-600">Total Calories</span><span id="summaryCalories" class="font-medium text-amber-700">0 kcal</span></div>
+                    <div class="flex justify-between text-lg font-bold mt-2 pt-2 border-t border-slate-100">
+                        <span>Total Paid</span><span id="summaryTotal" class="text-green-600">$0.00</span>
+                    </div>
+                </div>
+
+                <button onclick="closeOrderModal()" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-semibold transition-all active:scale-95 cursor-pointer">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
+
+    <script>
+        // ================= DATA =================
+        const defaultItems = [
+            { id: 1, name: "Classic Cheeseburger", desc: "Juicy beef patty with cheddar, lettuce, and house sauce.", price: 12.99, category: "Burger", calories: 650, image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=500&q=60" },
+            { id: 2, name: "Pepperoni Pizza", desc: "Crispy crust topped with mozzarella and spicy pepperoni.", price: 15.50, category: "Pizza", calories: 820, image: "https://images.unsplash.com/photo-1628840042765-356cda07504e?auto=format&fit=crop&w=500&q=60" },
+            { id: 3, name: "Salmon Sushi Set", desc: "Fresh salmon nigiri and maki rolls with wasabi.", price: 22.00, category: "Sushi", calories: 450, image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&w=500&q=60" },
+            { id: 4, name: "Caesar Salad", desc: "Crisp romaine lettuce, croutons, parmesan, and caesar dressing.", price: 9.99, category: "Salad", calories: 320, image: "https://images.unsplash.com/photo-1550304943-4f24f54ddde9?auto=format&fit=crop&w=500&q=60" },
+            { id: 5, name: "Chocolate Lava Cake", desc: "Warm chocolate cake with a molten center and vanilla ice cream.", price: 8.50, category: "Dessert", calories: 550, image: "https://images.unsplash.com/photo-1624353365286-3f8d62daad51?auto=format&fit=crop&w=500&q=60" },
+            { id: 6, name: "Iced Matcha Latte", desc: "Premium matcha green tea with milk and ice.", price: 5.75, category: "Drink", calories: 180, image: "https://images.unsplash.com/photo-1515823064-d6e0c04616a7?auto=format&fit=crop&w=500&q=60" },
+            { id: 7, name: "Crispy Fried Chicken", desc: "Golden crispy fried chicken with honey butter dip.", price: 11.50, category: "Main Course", calories: 750, image: "https://images.unsplash.com/photo-1562967914-608f82629710?auto=format&fit=crop&w=500&q=60" },
+            { id: 8, name: "Pasta Carbonara", desc: "Creamy pasta with bacon, parmesan, and black pepper.", price: 13.25, category: "Noodles", calories: 680, image: "https://images.unsplash.com/photo-1612874742237-6526221588e3?auto=format&fit=crop&w=500&q=60" },
+            { id: 9, name: "Beef Tacos", desc: "Three soft tacos with seasoned beef, salsa, and lime.", price: 10.75, category: "Mexican", calories: 520, image: "https://images.unsplash.com/photo-1551504734-5ee1c4a1479b?auto=format&fit=crop&w=500&q=60" },
+            { id: 10, name: "Japanese Ramen", desc: "Rich tonkotsu broth with noodles, egg, and pork slices.", price: 14.00, category: "Noodles", calories: 580, image: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=500&q=60" },
+            { id: 11, name: "Fluffy Pancakes", desc: "Stack of pancakes with maple syrup, berries, and butter.", price: 8.25, category: "Breakfast", calories: 480, image: "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?auto=format&fit=crop&w=500&q=60" },
+            { id: 12, name: "Grilled Steak", desc: "Premium ribeye steak with herbs and roasted vegetables.", price: 24.99, category: "Main Course", calories: 650, image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=60" },
+            { id: 13, name: "Ice Cream Sundae", desc: "Vanilla ice cream with hot fudge, nuts, and a cherry.", price: 6.50, category: "Dessert", calories: 420, image: "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=500&q=60" },
+            { id: 14, name: "Fresh Orange Juice", desc: "Freshly squeezed orange juice, no sugar added.", price: 4.25, category: "Drink", calories: 110, image: "https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=500&q=60" }
+        ];
+
+        // Safe load: fall back to defaults if saved data is broken
+        let items;
+        try {
+            const saved = JSON.parse(localStorage.getItem('myFood_items_v2'));
+            items = (Array.isArray(saved) && saved.length > 0) ? saved : defaultItems;
+        } catch (e) {
+            items = defaultItems;
+        }
+
+        let cart = [];
+        let isAdmin = false;
+        let activeCategory = 'All';
+
+        // ================= INIT (bind admin button safely) =================
+        function initApp() {
+            const adminBtn = document.getElementById('adminBtn');
+            // Both inline fallback AND addEventListener for maximum reliability
+            adminBtn.addEventListener('click', toggleAdminMode);
+
+            renderCategoryFilter();
+            renderItems();
+            updateCartUI();
+            setTimeout(() => adminBtn.classList.remove('attention'), 4000);
+        }
+        document.addEventListener('DOMContentLoaded', initApp);
+
+        function saveToStorage() {
+            try {
+                localStorage.setItem('myFood_items_v2', JSON.stringify(items));
+            } catch (e) { /* storage full or blocked - app still works in memory */ }
+        }
+
+        // ================= ADMIN TOGGLE =================
+        function toggleAdminMode() {
+            isAdmin = !isAdmin;
+
+            const btn = document.getElementById('adminBtn');
+            const icon = document.getElementById('adminIcon');
+            const label = document.getElementById('adminLabel');
+            const addBtn = document.getElementById('addFoodBtn');
+            const banner = document.getElementById('adminBanner');
+
+            if (isAdmin) {
+                btn.classList.add('on');
+                icon.className = 'fa-solid fa-unlock';
+                label.innerText = 'Admin Mode: ON';
+                addBtn.style.display = 'inline-flex';
+                banner.style.display = 'block';
+                showToast('✅ Admin Mode ON — you can edit the menu now!', 'success');
+            } else {
+                btn.classList.remove('on');
+                icon.className = 'fa-solid fa-lock';
+                label.innerText = 'Admin Mode: OFF';
+                addBtn.style.display = 'none';
+                banner.style.display = 'none';
+                showToast('Admin Mode OFF', 'neutral');
+            }
+            renderItems();
+        }
+
+        // ================= CATEGORY FILTER =================
+        function renderCategoryFilter() {
+            const categories = ['All', ...new Set(items.map(i => i.category))];
+            const container = document.getElementById('categoryFilter');
+            container.innerHTML = categories.map(cat => `
+                <button onclick="setCategory('${cat.replace(/'/g, "\\'")}')" class="px-4 py-1.5 rounded-full text-sm font-medium transition-all cursor-pointer ${
+                    activeCategory === cat 
+                        ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-orange-300 hover:text-orange-600'
+                }">${cat}</button>
+            `).join('');
+        }
+
+        function setCategory(cat) {
+            activeCategory = cat;
+            renderCategoryFilter();
+            renderItems();
+        }
+
+        // ================= GUIDE =================
+        function openGuide() {
+            const modal = document.getElementById('guideModal');
+            const content = document.getElementById('guideModalContent');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                content.classList.remove('scale-95', 'opacity-0');
+                content.classList.add('scale-100', 'opacity-100');
+            }, 10);
+        }
+
+        function closeGuide() {
+            const modal = document.getElementById('guideModal');
+            const content = document.getElementById('guideModalContent');
+            content.classList.remove('scale-100', 'opacity-100');
+            content.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function closeGuideAndStart() {
+            closeGuide();
+            if (!isAdmin) toggleAdminMode();
+        }
+
+        function dismissBanner() {
+            document.getElementById('adminBanner').style.display = 'none';
+        }
+
+        // ================= RENDER MENU =================
+        function renderItems() {
+            const grid = document.getElementById('foodGrid');
+            const emptyState = document.getElementById('emptyState');
+            grid.innerHTML = '';
+
+            const filtered = activeCategory === 'All' ? items : items.filter(i => i.category === activeCategory);
+
+            if (filtered.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            } else {
+                emptyState.style.display = 'none';
+            }
+
+            filtered.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'food-card bg-white rounded-2xl overflow-hidden border shadow-sm flex flex-col h-full ' + (isAdmin ? 'ring-2 ring-orange-300 border-orange-200' : 'border-slate-100');
+                
+                const adminControls = isAdmin ? `
+                    <div class="absolute top-3 right-3 flex gap-2 z-10">
+                        <button onclick="editItem(${item.id})" class="bg-blue-500 hover:bg-blue-600 text-white p-2.5 rounded-full shadow-md transition-all cursor-pointer" title="Edit this food">
+                            <i class="fa-solid fa-pen text-xs"></i>
+                        </button>
+                        <button onclick="deleteItem(${item.id})" class="bg-red-500 hover:bg-red-600 text-white p-2.5 rounded-full shadow-md transition-all cursor-pointer" title="Delete this food">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                        </button>
+                    </div>
+                ` : '';
+
+                const cal = parseInt(item.calories) || 0;
+
+                card.innerHTML = `
+                    <div class="relative h-48 overflow-hidden group">
+                        <img src="${item.image}" alt="${item.name}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" onerror="this.src='https://placehold.co/500x300/e2e8f0/94a3b8?text=No+Image'">
+                        ${adminControls}
+                        <div class="absolute bottom-0 left-0 bg-gradient-to-t from-black/60 to-transparent w-full p-3 pt-8 flex justify-between items-end">
+                            <span class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded uppercase tracking-wider">${item.category}</span>
+                            <span class="calorie-badge text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">
+                                <i class="fa-solid fa-fire-flame-curved"></i> ${cal} kcal
+                            </span>
+                        </div>
+                    </div>
+                    <div class="p-5 flex flex-col flex-1">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="font-bold text-lg text-slate-800 leading-tight">${item.name}</h3>
+                            <span class="font-bold text-orange-600">$${parseFloat(item.price).toFixed(2)}</span>
+                        </div>
+                        <p class="text-slate-500 text-sm mb-4 line-clamp-2 flex-1">${item.desc}</p>
+                        <button onclick="addToCart(${item.id})" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 group cursor-pointer">
+                            <i class="fa-solid fa-plus text-xs group-hover:rotate-90 transition-transform"></i> Add to Order
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // ================= ADD / EDIT / DELETE =================
+        function openModal(mode, id = null) {
+            if (!isAdmin) {
+                showToast('Please turn ON Admin Mode first (top right switch)', 'neutral');
+                return;
+            }
+            const modal = document.getElementById('itemModal');
+            const overlay = document.getElementById('overlay');
+            const content = document.getElementById('modalContent');
+            const form = document.getElementById('foodForm');
+            
+            modal.classList.remove('hidden');
+            overlay.classList.remove('hidden');
+            
+            setTimeout(() => {
+                overlay.classList.remove('opacity-0');
+                content.classList.remove('scale-95', 'opacity-0');
+                content.classList.add('scale-100', 'opacity-100');
+            }, 10);
+
+            if (mode === 'edit' && id) {
+                const item = items.find(i => i.id === id);
+                if (!item) return;
+                document.getElementById('modalTitle').innerText = 'Edit Item';
+                document.getElementById('itemId').value = item.id;
+                document.getElementById('itemName').value = item.name;
+                document.getElementById('itemDesc').value = item.desc;
+                document.getElementById('itemPrice').value = item.price;
+                document.getElementById('itemCalories').value = item.calories || 0;
+                document.getElementById('itemCategory').value = item.category;
+                document.getElementById('itemImage').value = item.image;
+            } else {
+                document.getElementById('modalTitle').innerText = 'Add New Item';
+                form.reset();
+                document.getElementById('itemId').value = '';
+            }
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('itemModal');
+            const overlay = document.getElementById('overlay');
+            const content = document.getElementById('modalContent');
+
+            overlay.classList.add('opacity-0');
+            content.classList.remove('scale-100', 'opacity-100');
+            content.classList.add('scale-95', 'opacity-0');
+
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                overlay.classList.add('hidden');
+            }, 300);
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            
+            const id = document.getElementById('itemId').value;
+            const name = document.getElementById('itemName').value;
+            const desc = document.getElementById('itemDesc').value;
+            const price = parseFloat(document.getElementById('itemPrice').value);
+            const calories = parseInt(document.getElementById('itemCalories').value) || 0;
+            const category = document.getElementById('itemCategory').value;
+            let image = document.getElementById('itemImage').value;
+
+            if (!image) {
+                image = `https://loremflickr.com/500/300/food,${category.toLowerCase()}?lock=${Math.floor(Math.random() * 1000)}`;
+            }
+
+            if (id) {
+                const index = items.findIndex(i => i.id == id);
+                if (index !== -1) {
+                    items[index] = { ...items[index], name, desc, price, calories, category, image };
+                    showToast('Item updated successfully!', 'success');
+                }
+            } else {
+                items.push({ id: Date.now(), name, desc, price, calories, category, image });
+                showToast('New item added to menu!', 'success');
+            }
+
+            saveToStorage();
+            renderCategoryFilter();
+            renderItems();
+            closeModal();
+        }
+
+        function editItem(id) { openModal('edit', id); }
+
+        function deleteItem(id) {
+            if (confirm('Are you sure you want to delete this item?')) {
+                items = items.filter(i => i.id !== id);
+                saveToStorage();
+                renderCategoryFilter();
+                renderItems();
+                showToast('Item deleted.', 'neutral');
+            }
+        }
+
+        function generateRandomImage() {
+            const categories = ['burger', 'pizza', 'sushi', 'salad', 'dessert', 'drink', 'pasta', 'steak'];
+            const randomCat = categories[Math.floor(Math.random() * categories.length)];
+            document.getElementById('itemImage').value = `https://loremflickr.com/500/300/${randomCat},food?lock=${Math.floor(Math.random() * 10000)}`;
+        }
+
+        // ================= CART =================
+        function addToCart(id) {
+            const item = items.find(i => i.id === id);
+            const existing = cart.find(c => c.id === id);
+
+            if (existing) {
+                existing.qty++;
+            } else {
+                cart.push({ ...item, qty: 1 });
+            }
+            
+            updateCartUI();
+            showToast(`${item.name} added to cart`, 'success');
+            
+            const badge = document.getElementById('cartBadge');
+            badge.classList.add('scale-125');
+            setTimeout(() => badge.classList.remove('scale-125'), 200);
+        }
+
+        function removeFromCart(id) {
+            cart = cart.filter(c => c.id !== id);
+            updateCartUI();
+        }
+
+        function updateQty(id, change) {
+            const item = cart.find(c => c.id === id);
+            if (item) {
+                item.qty += change;
+                if (item.qty <= 0) removeFromCart(id);
+                else updateCartUI();
+            }
+        }
+
+        function updateCartUI() {
+            const container = document.getElementById('cartItems');
+            const badge = document.getElementById('cartBadge');
+            const subtotalEl = document.getElementById('cartSubtotal');
+            const taxEl = document.getElementById('cartTax');
+            const totalEl = document.getElementById('cartTotal');
+            const caloriesEl = document.getElementById('cartCalories');
+
+            const totalQty = cart.reduce((sum, item) => sum + item.qty, 0);
+            badge.innerText = totalQty;
+            if (totalQty > 0) badge.classList.remove('scale-0');
+            else badge.classList.add('scale-0');
+
+            if (cart.length === 0) {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-slate-400">
+                        <i class="fa-solid fa-basket-shopping text-5xl mb-4 opacity-20"></i>
+                        <p>Your cart is empty</p>
+                        <button onclick="toggleCart()" class="mt-4 text-orange-500 font-medium hover:underline cursor-pointer">Browse Menu</button>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = cart.map(item => `
+                    <div class="flex gap-4 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                        <img src="${item.image}" class="w-20 h-20 rounded-lg object-cover bg-slate-100">
+                        <div class="flex-1 flex flex-col justify-between">
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm line-clamp-1">${item.name}</h4>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <p class="text-orange-600 font-bold text-sm">$${(item.price * item.qty).toFixed(2)}</p>
+                                    <span class="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                                        <i class="fa-solid fa-fire-flame-curved text-[9px]"></i> ${(item.calories || 0) * item.qty} kcal
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 mt-2">
+                                <button onclick="updateQty(${item.id}, -1)" class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer">
+                                    <i class="fa-solid fa-minus text-[10px]"></i>
+                                </button>
+                                <span class="text-sm font-medium w-4 text-center">${item.qty}</span>
+                                <button onclick="updateQty(${item.id}, 1)" class="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer">
+                                    <i class="fa-solid fa-plus text-[10px]"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <button onclick="removeFromCart(${item.id})" class="text-slate-300 hover:text-red-500 self-start cursor-pointer">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const tax = subtotal * 0.08;
+            const total = subtotal + tax;
+            const totalCalories = cart.reduce((sum, item) => sum + ((item.calories || 0) * item.qty), 0);
+
+            subtotalEl.innerText = `$${subtotal.toFixed(2)}`;
+            taxEl.innerText = `$${tax.toFixed(2)}`;
+            totalEl.innerText = `$${total.toFixed(2)}`;
+            caloriesEl.innerText = `${totalCalories} kcal`;
+        }
+
+        function toggleCart() {
+            const sidebar = document.getElementById('cartSidebar');
+            const overlay = document.getElementById('overlay');
+            
+            if (sidebar.classList.contains('translate-x-full')) {
+                sidebar.classList.remove('translate-x-full');
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+            } else {
+                sidebar.classList.add('translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        function closeAllDrawers() {
+            const sidebar = document.getElementById('cartSidebar');
+            if (!sidebar.classList.contains('translate-x-full')) toggleCart();
+            closeModal();
+        }
+
+        // ================= CHECKOUT (QR + SMS) =================
+        function checkout() {
+            if (cart.length === 0) return;
+            
+            const phone = document.getElementById('phoneNumber').value.trim();
+            if (!phone) {
+                showToast('Please enter your phone number for SMS notification', 'neutral');
+                document.getElementById('phoneNumber').focus();
+                return;
+            }
+
+            const btn = document.querySelector('#cartSidebar button.bg-slate-800');
+            const originalText = btn.innerText;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Processing...';
+            btn.disabled = true;
+
+            setTimeout(() => {
+                const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                const tax = subtotal * 0.08;
+                const total = subtotal + tax;
+                const totalCalories = cart.reduce((sum, item) => sum + ((item.calories || 0) * item.qty), 0);
+                const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
+                const orderNum = Math.floor(100000 + Math.random() * 900000);
+
+                const orderData = {
+                    orderId: `MF-${orderNum}`,
+                    items: cart.map(i => `${i.name} x${i.qty}`),
+                    total: `$${total.toFixed(2)}`,
+                    calories: `${totalCalories} kcal`,
+                    phone: phone,
+                    time: new Date().toLocaleString()
+                };
+
+                toggleCart();
+                showOrderConfirmation(orderNum, phone, total, totalCalories, totalItems, orderData);
+
+                cart = [];
+                updateCartUI();
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }, 1500);
+        }
+
+        function showOrderConfirmation(orderNum, phone, total, calories, itemCount, orderData) {
+            const modal = document.getElementById('orderModal');
+            const content = document.getElementById('orderModalContent');
+
+            document.getElementById('orderNumber').innerText = orderNum;
+            document.getElementById('smsPhone').innerText = phone;
+            document.getElementById('summaryItems').innerText = `${itemCount} item(s)`;
+            document.getElementById('summaryCalories').innerText = `${calories} kcal`;
+            document.getElementById('summaryTotal').innerText = `$${total.toFixed(2)}`;
+
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = '';
+
+            try {
+                new QRCode(qrContainer, {
+                    text: JSON.stringify(orderData),
+                    width: 180,
+                    height: 180,
+                    colorDark: "#1e293b",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            } catch (e) {
+                qrContainer.innerHTML = '<p class="text-xs text-red-500">QR generation failed</p>';
+            }
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                content.classList.remove('scale-95', 'opacity-0');
+                content.classList.add('scale-100', 'opacity-100');
+            }, 10);
+
+            showToast(`SMS sent to ${phone}`, 'success');
+        }
+
+        function closeOrderModal() {
+            const modal = document.getElementById('orderModal');
+            const content = document.getElementById('orderModalContent');
+            content.classList.remove('scale-100', 'opacity-100');
+            content.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        // ================= TOAST =================
+        function showToast(message, type = 'neutral') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            
+            let icon = 'fa-info-circle';
+            let colorClass = 'bg-slate-800';
+            
+            if (type === 'success') {
+                icon = 'fa-check-circle';
+                colorClass = 'bg-green-600';
+            }
+
+            toast.className = `toast ${colorClass} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[250px]`;
+            toast.innerHTML = `
+                <i class="fa-solid ${icon}"></i>
+                <span class="font-medium text-sm">${message}</span>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+```
